@@ -5,15 +5,19 @@
  * POD 印花图案提取工具
  *
  * 基于火山引擎 Agent Plan 的 Seedream 图生图模型，
- * 按照 prompt.md 中的指示，将商品实拍图提取为干净的二维印花图案。
+ * 按照 .trae/skills/pod-print-extractor/prompt.md 中的指示，
+ * 将商品实拍图提取为干净的二维印花图案。
+ *
+ * 提示词可在 skill 目录下持续迭代改进，无需改动脚本。
  *
  * 用法:
- *   node process.js                              # 使用默认 input/ -> output/
+ *   node process.js                              # 默认 桌面/待提取文件夹 -> 桌面/可用图案
  *   node process.js --input ./myimgs --output ./result
  *   node process.js --size 3K --model doubao-seedream-5-0-pro-260628
+ *   node process.js --prompt ./my-prompt.md      # 自定义提示词
  *
  * 也可通过 .env / 环境变量配置:
- *   API_KEY / ARK_API_KEY, ARK_BASE_URL, ARK_MODEL, IMAGE_SIZE
+ *   API_KEY / ARK_API_KEY, ARK_BASE_URL, ARK_MODEL, IMAGE_SIZE, PROMPT_PATH
  */
 
 const fs = require('fs');
@@ -180,14 +184,19 @@ async function main() {
     process.exit(1);
   }
 
-  // 读取提示词
-  const promptPath = path.join(__dirname, 'prompt.md');
+  // 读取提示词：优先 skill 目录（方便迭代改进），回退到项目根目录
+  const skillPromptPath = path.join(__dirname, '.trae', 'skills', 'pod-print-extractor', 'prompt.md');
+  const rootPromptPath = path.join(__dirname, 'prompt.md');
+  const promptPath = args.prompt || process.env.PROMPT_PATH ||
+    (fs.existsSync(skillPromptPath) ? skillPromptPath : rootPromptPath);
   if (!fs.existsSync(promptPath)) {
     console.error('[ERROR] 未找到 prompt.md');
+    console.error(`        已尝试: ${skillPromptPath}`);
+    console.error(`        已尝试: ${rootPromptPath}`);
     process.exit(1);
   }
   const prompt = fs.readFileSync(promptPath, 'utf-8');
-  console.log(`已加载提示词 (${prompt.length} 字符)`);
+  console.log(`已加载提示词 (${prompt.length} 字符) [${path.relative(__dirname, promptPath)}]`);
 
   // 创建输出目录
   fs.mkdirSync(outputDir, { recursive: true });

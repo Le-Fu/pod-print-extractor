@@ -1,10 +1,12 @@
 # POD 印花图案提取工具
 
-基于 [火山引擎 Agent Plan](https://www.volcengine.com/product/agent-plan) 的 **Seedream 图生图模型**，按照 `prompt.md` 中的设计指令，自动将商品实拍图转换为干净、完整、可直接用于 POD 印刷的二维印花图案。
+基于 [火山引擎 Agent Plan](https://www.volcengine.com/product/agent-plan) 的 **Seedream 图生图模型**，按照 skill 内的提示词，自动将商品实拍图转换为干净、完整、可直接用于 POD 印刷的二维印花图案。
 
 ## 工作原理
 
-脚本读取 `prompt.md` 作为统一提示词，将每张商品实拍图（base64 编码）和提示词一并发送到 Agent Plan 的 Seedream 模型（默认 `doubao-seedream-5-0-260128`），模型识别并提取真正属于"印花设计"的视觉信息，彻底剥离商品摄影造成的光影、材质、褶皱、立体变形，然后补全被裁切的元素，生成一张独立的、平面的、干净的印花图。
+脚本读取 skill 目录下的 `prompt.md` 作为统一提示词，将每张商品实拍图（base64 编码）和提示词一并发送到 Agent Plan 的 Seedream 模型（默认 `doubao-seedream-5-0-260128`），模型识别并提取真正属于"印花设计"的视觉信息，彻底剥离商品摄影造成的光影、材质、褶皱、立体变形，然后补全被裁切的元素，生成一张独立的、平面的、干净的印花图。
+
+**提示词可独立迭代改进**——编辑 skill 目录下的 `prompt.md` 即可，无需改动脚本代码。
 
 ## 默认目录
 
@@ -12,7 +14,8 @@
 |---|---|---|
 | 输入 | `~/Desktop/待提取文件夹/` | 放入商品实拍图，首次运行自动创建 |
 | 输出 | `~/Desktop/可用图案/` | 生成的印花图自动保存于此 |
-| 提示词 | `prompt.md` | 印花提取规则全文 |
+| 提示词 | `.trae/skills/pod-print-extractor/prompt.md` | 印花提取规则全文，可不断改进 |
+| Skill | `.trae/skills/pod-print-extractor/SKILL.md` | Skill 描述与迭代指南 |
 | 配置 | `.env` | API Key 等敏感配置 |
 
 支持的输入格式：`.jpg` / `.jpeg` / `.png` / `.webp`，单张不超过 30MB。
@@ -67,9 +70,28 @@ node process.js --size 3K
 
 # 切换模型（默认 Seedream 5.0 Lite，如套餐支持 Pro 高精度编辑模型）
 node process.js --model doubao-seedream-5-0-pro-260628
+
+# 自定义提示词文件（默认读 skill 目录下的 prompt.md）
+node process.js --prompt ./my-prompt.md
 ```
 
-也可通过 `.env` 设置环境变量：`ARK_MODEL` / `IMAGE_SIZE` / `ARK_BASE_URL`。
+也可通过 `.env` 设置环境变量：`ARK_MODEL` / `IMAGE_SIZE` / `ARK_BASE_URL` / `PROMPT_PATH`。
+
+## 改进提示词
+
+提取质量完全由提示词驱动。提示词位于 skill 目录：
+
+```
+.trae/skills/pod-print-extractor/prompt.md
+```
+
+**迭代流程：**
+
+1. 直接编辑上述 `prompt.md`——增删规则、调整措辞、修改优先级
+2. 用一张样图测试：`node process.js`
+3. 满意后 `git commit` 提示词变更，便于版本回溯
+
+详细的提示词结构与迭代建议见 [SKILL.md](.trae/skills/pod-print-extractor/SKILL.md)。
 
 ## 配置到「快捷指令」（macOS Shortcuts）
 
@@ -178,6 +200,22 @@ cp .env.example .env
 - **运行时**：Node.js 18+（零外部依赖，仅用内置 `fs` / `path` / `os` / `fetch`）
 - **模型**：火山引擎方舟 Agent Plan 的 Seedream 系列图生图模型
 - **API 端点**：`POST https://ark.cn-beijing.volces.com/api/plan/v3/images/generations`
+- **Skill**：Trae SKILL 格式，提示词与脚本分离，支持独立迭代
+
+## 项目结构
+
+```
+印花提取/
+├── .env                          # API key (gitignored)
+├── .env.example                  # 配置模板
+├── .gitignore
+├── package.json
+├── process.js                    # 核心脚本
+├── README.md
+└── .trae/skills/pod-print-extractor/
+    ├── SKILL.md                  # Skill 描述（触发条件、执行流程、迭代指南）
+    └── prompt.md                 # 提取提示词（可不断改进）
+```
 
 ## 许可
 
