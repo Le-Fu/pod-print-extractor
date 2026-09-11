@@ -1,0 +1,13 @@
+{
+  "name": "pod-print-extractor",
+  "version": "1.0.0",
+  "description": "POD 印花图案提取工具 - 基于火山引擎 Agent Plan Seedream 图生图模型",
+  "main": "process.js",
+  "scripts": {
+    "start": "node process.js",
+    "process": "node process.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

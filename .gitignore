@@ -1,0 +1,16 @@
+# 敏感信息
+.env
+.env.*
+!.env.example
+
+# 依赖
+node_modules/
+
+# 输出与输入（运行时产物）
+input/
+output/
+*.log
+
+# 系统
+.DS_Store
+Thumbs.db
