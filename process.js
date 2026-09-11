@@ -5,19 +5,24 @@
  * POD 印花图案提取工具
  *
  * 基于火山引擎 Agent Plan 的 Seedream 图生图模型，
- * 按照 .trae/skills/pod-print-extractor/prompt.md 中的指示，
+ * 按照 .trae/skills/pod-print-extractor/base.md + 品类提示词的指示，
  * 将商品实拍图提取为干净的二维印花图案。
  *
- * 提示词可在 skill 目录下持续迭代改进，无需改动脚本。
+ * 提示词采用分层结构：base.md（通用规则）+ 品类 .md（品类特定规则），
+ * 可在 skill 目录下持续迭代改进，无需改动脚本。
  *
  * 用法:
- *   node process.js                              # 默认 桌面/待提取文件夹 -> 桌面/可用图案
+ *   node process.js                                          # 默认 桌面/待提取文件夹 -> 桌面/可用图案
+ *   node process.js --category umbrella                      # 伞 (1:1, 1920×1920)
+ *   node process.js --category drawstring-bag                # 束口袋 (3:4, 1440×1920)
+ *   node process.js --category storage-box                   # 收纳箱 (3:2, 1920×1280)
+ *   node process.js --category 伞                            # 也支持中文别名
  *   node process.js --input ./myimgs --output ./result
  *   node process.js --size 3K --model doubao-seedream-5-0-pro-260628
- *   node process.js --prompt ./my-prompt.md      # 自定义提示词
+ *   node process.js --prompt ./my-prompt.md                  # 自定义提示词（覆盖品类拼接）
  *
  * 也可通过 .env / 环境变量配置:
- *   API_KEY / ARK_API_KEY, ARK_BASE_URL, ARK_MODEL, IMAGE_SIZE, PROMPT_PATH
+ *   API_KEY / ARK_API_KEY, ARK_BASE_URL, ARK_MODEL, IMAGE_SIZE, PROMPT_PATH, CATEGORY
  */
 
 const fs = require('fs');
@@ -26,6 +31,32 @@ const os = require('os');
 
 // 桌面路径（跨用户名兼容）
 const DESKTOP_DIR = path.join(os.homedir(), 'Desktop');
+
+// Skill 目录
+const SKILL_DIR = path.join(__dirname, '.trae', 'skills', 'pod-print-extractor');
+
+// 品类配置：尺寸 + 品类提示词文件
+// 顺序：用户通过 --category 指定品类后，脚本读取 base.md + 品类 .md 拼接成完整提示词
+const CATEGORIES = {
+  umbrella: {
+    label: '伞',
+    size: '1920x1920',
+    ratio: '1:1',
+    promptFile: 'umbrella.md',
+  },
+  'drawstring-bag': {
+    label: '束口袋',
+    size: '1440x1920',
+    ratio: '3:4',
+    promptFile: 'drawstring-bag.md',
+  },
+  'storage-box': {
+    label: '收纳箱',
+    size: '1920x1280',
+    ratio: '3:2',
+    promptFile: 'storage-box.md',
+  },
+};
 
 // ======================== 配置加载 ========================
 
@@ -166,13 +197,34 @@ async function main() {
   loadEnv();
   const args = parseArgs(process.argv.slice(2));
 
+  // 解析品类：--category umbrella / drawstring-bag / storage-box
+  // 或使用别名 --category 伞 / 束口袋 / 收纳箱
+  let categoryKey = args.category || process.env.CATEGORY;
+  if (categoryKey) {
+    // 别名映射（中文标签 → key）
+    const alias = { '伞': 'umbrella', '束口袋': 'drawstring-bag', '收纳箱': 'storage-box' };
+    categoryKey = alias[categoryKey] || categoryKey;
+  }
+  let category = null;
+  if (categoryKey) {
+    category = CATEGORIES[categoryKey];
+    if (!category) {
+      console.error(`[ERROR] 未知品类: ${categoryKey}`);
+      console.error(`        支持的品类: ${Object.keys(CATEGORIES).join(', ')}`);
+      process.exit(1);
+    }
+  }
+
   // 组装配置
+  // size 优先级: --size > 品类默认 > 环境变量 > 默认 2K
   const config = {
     apiKey: process.env.ARK_API_KEY || process.env.API_KEY,
     baseUrl: process.env.ARK_BASE_URL || 'https://ark.cn-beijing.volces.com/api/plan/v3',
     model: args.model || process.env.ARK_MODEL || 'doubao-seedream-5-0-260128',
-    size: args.size || process.env.IMAGE_SIZE || '2K',
+    size: args.size || (category && category.size) || process.env.IMAGE_SIZE || '2K',
     outputFormat: 'png',
+    category,
+    categoryKey,
   };
 
   const inputDir = args.input || process.env.INPUT_DIR || path.join(DESKTOP_DIR, '待提取文件夹');
@@ -184,19 +236,43 @@ async function main() {
     process.exit(1);
   }
 
-  // 读取提示词：优先 skill 目录（方便迭代改进），回退到项目根目录
-  const skillPromptPath = path.join(__dirname, '.trae', 'skills', 'pod-print-extractor', 'prompt.md');
-  const rootPromptPath = path.join(__dirname, 'prompt.md');
-  const promptPath = args.prompt || process.env.PROMPT_PATH ||
-    (fs.existsSync(skillPromptPath) ? skillPromptPath : rootPromptPath);
-  if (!fs.existsSync(promptPath)) {
-    console.error('[ERROR] 未找到 prompt.md');
-    console.error(`        已尝试: ${skillPromptPath}`);
-    console.error(`        已尝试: ${rootPromptPath}`);
-    process.exit(1);
+  // 组装提示词：base.md + 品类 .md（如有）
+  // 也可用 --prompt 指定独立提示词文件覆盖整个提示词
+  let prompt;
+  if (args.prompt || process.env.PROMPT_PATH) {
+    // 用户显式指定了独立提示词文件，直接使用
+    const promptPath = args.prompt || process.env.PROMPT_PATH;
+    if (!fs.existsSync(promptPath)) {
+      console.error(`[ERROR] 未找到提示词文件: ${promptPath}`);
+      process.exit(1);
+    }
+    prompt = fs.readFileSync(promptPath, 'utf-8');
+    console.log(`已加载自定义提示词 (${prompt.length} 字符) [${path.relative(__dirname, promptPath)}]`);
+  } else {
+    // 默认: base.md + 品类 .md 拼接
+    const basePath = path.join(SKILL_DIR, 'base.md');
+    if (!fs.existsSync(basePath)) {
+      console.error(`[ERROR] 未找到基础提示词: ${basePath}`);
+      process.exit(1);
+    }
+    let base = fs.readFileSync(basePath, 'utf-8');
+
+    if (category) {
+      const catPath = path.join(SKILL_DIR, category.promptFile);
+      if (!fs.existsSync(catPath)) {
+        console.error(`[ERROR] 未找到品类提示词: ${catPath}`);
+        process.exit(1);
+      }
+      const catPrompt = fs.readFileSync(catPath, 'utf-8');
+      // 在 base 末尾追加品类提示词
+      prompt = `${base}\n\n---\n\n# 品类特定指令\n\n本次任务目标品类：**${category.label}**\n目标尺寸：**${category.size} 像素 (${category.ratio})**\n\n${catPrompt}`;
+      console.log(`已加载提示词: base.md + ${category.promptFile} (品类: ${category.label}, ${category.size} ${category.ratio})`);
+    } else {
+      prompt = base;
+      console.log(`已加载基础提示词 (${prompt.length} 字符) [base.md]`);
+      console.log(`[提示] 未指定品类，将使用通用规则。可用 --category umbrella|drawstring-bag|storage-box 启用品类专属规则`);
+    }
   }
-  const prompt = fs.readFileSync(promptPath, 'utf-8');
-  console.log(`已加载提示词 (${prompt.length} 字符) [${path.relative(__dirname, promptPath)}]`);
 
   // 创建输出目录
   fs.mkdirSync(outputDir, { recursive: true });
@@ -223,6 +299,7 @@ async function main() {
   // 打印任务信息
   console.log('--------------------------------------------------');
   console.log(`图片数量: ${images.length}`);
+  console.log(`品类:     ${category ? `${category.label} (${category.ratio})` : '未指定（通用规则）'}`);
   console.log(`模型:     ${config.model}`);
   console.log(`尺寸:     ${config.size}`);
   console.log(`输入目录: ${inputDir}`);
